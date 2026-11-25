@@ -17,7 +17,7 @@ export default function FennecDesert({
       style={style}
       onExit={onExit}
       title="Le Sahara à hauteur de fennec"
-      hint="Flèches : avancer et tourner · ZQSD : se déplacer · Maj : courir · Espace : sauter"
+      hint="Flèches : avancer et tourner · ZQSD : se déplacer · Maj : courir · Espace : sauter · C : vue de derrière · E : parler au Touareg"
     />
   );
 }

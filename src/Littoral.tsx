@@ -17,7 +17,7 @@ export default function Littoral({
       style={style}
       onExit={onExit}
       title="Le littoral à hauteur de fennec"
-      hint="Flèches / ZQSD : se déplacer · Maj : courir · Espace : sauter · Le stade est droit devant"
+      hint="Flèches / ZQSD : se déplacer · Maj : courir · Espace : sauter · C : vue de derrière · Le stade est droit devant"
     />
   );
 }

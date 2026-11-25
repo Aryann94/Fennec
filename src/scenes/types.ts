@@ -22,8 +22,8 @@ export type World = {
   clamp?: (position: THREE.Vector3) => void;
   /** Obstacles infranchissables (rochers, tribunes, poteaux…). */
   colliders?: Collider[];
-  /** Appelé à chaque image, avant le rendu. */
-  onFrame?: (dt: number, camera: THREE.PerspectiveCamera) => void;
+  /** Appelé à chaque image, avant le rendu. `player` = position des pattes du fennec. */
+  onFrame?: (dt: number, camera: THREE.PerspectiveCamera, player: THREE.Vector3) => void;
   dispose?: () => void;
 };
 

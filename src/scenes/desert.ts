@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { Collider, SceneContext, World } from "./types";
+import { Touareg } from "../characters/touareg";
 
 const GROUND_SIZE = 300;
 const LIMIT = 130;
@@ -23,7 +24,7 @@ function mulberry32(seed: number) {
   };
 }
 
-export function buildDesert({ scene }: SceneContext): World {
+export function buildDesert({ scene, mount }: SceneContext): World {
   const rand = mulberry32(7);
   const colliders: Collider[] = [];
   const geos: THREE.BufferGeometry[] = [];
@@ -187,6 +188,27 @@ export function buildDesert({ scene }: SceneContext): World {
   }
   scene.add(tufts);
 
+  // --- Touareg, à quelques mètres du point d'apparition -------------------
+  // Le joueur part face au soleil. Le Touareg est placé sur le côté, à 90° de la
+  // direction du soleil (vers la gauche du joueur) : il est éclairé de profil
+  // (pas à contre-jour) et on le voit en tournant un peu la tête. Plus près de la
+  // direction du regard, il serait au bord de l'écran au départ, étiré par le grand-angle.
+  // Aucun rocher à moins de 20 m du départ.
+  const TOUAREG_DISTANCE = 5.7;
+  const TOUAREG_ANGLE_FROM_SUN = THREE.MathUtils.degToRad(90);
+  const sunAzimuth = Math.atan2(sunDir.x, sunDir.z);
+  const touaregX = Math.sin(sunAzimuth + TOUAREG_ANGLE_FROM_SUN) * TOUAREG_DISTANCE;
+  const touaregZ = Math.cos(sunAzimuth + TOUAREG_ANGLE_FROM_SUN) * TOUAREG_DISTANCE;
+  const touareg = new Touareg({
+    scene,
+    mount,
+    x: touaregX,
+    z: touaregZ,
+    heightAt: desertHeightAt,
+    faces: { x: 0, z: 0 },
+  });
+  colliders.push(touareg.collider);
+
   return {
     heightAt: desertHeightAt,
     eye: EYE,
@@ -199,7 +221,8 @@ export function buildDesert({ scene }: SceneContext): World {
         p.z *= LIMIT / r;
       }
     },
-    onFrame: (_dt, camera) => {
+    onFrame: (dt, camera, player) => {
+      touareg.update(dt, player);
       skyGroup.position.copy(camera.position);
       dirLight.target.position.set(camera.position.x, 0, camera.position.z);
       dirLight.position
@@ -208,6 +231,7 @@ export function buildDesert({ scene }: SceneContext): World {
       dirLight.position.y += 10;
     },
     dispose: () => {
+      touareg.dispose();
       geos.forEach((g) => g.dispose());
       mats.forEach((mt) => mt.dispose());
     },
