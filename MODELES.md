@@ -21,7 +21,7 @@ Os : root, spine_01, spine_02, neck, head, ear_L, ear_R, tail_01 à tail_04, upp
 | run | 0,33 s | oui | 1,25 m/s |
 | jump | 0,92 s | non | sur place |
 
-Pour éviter que les pattes glissent : `timeScale = vitesse réelle / vitesse du clip`. Les vitesses actuelles du jeu (2,6 et 6 m/s) sont trop rapides pour ces clips.
+Pour éviter que les pattes glissent : `timeScale = vitesse réelle / vitesse du clip`. Le jeu utilise 1,1 m/s en marche normale (clip trot) et 2,5 m/s avec Maj (clip run).
 
 ## touareg.glb (PNJ de dialogue, 1,89 m de haut)
 
@@ -40,12 +40,22 @@ Pas d'animation de marche : il ne se déplace pas.
 
 Trois matériaux : `Fennec_Fur` (pelage), `Fennec_Eyes` (yeux seuls), `Fennec_Nose` (truffe). En vue par les yeux, on peut cacher le mesh `Fennec_Eyes` sans perdre la truffe.
 
-## Ce qu'on attend côté code
+## Côté code (fait)
 
-- Un AnimationMixer par personnage, avec des fondus (environ 0,25 s) entre les animations.
-- Fennec : idle, walk, trot, run ou jump selon la vitesse et la touche de saut ; posé sur les dunes avec `heightAt` et incliné selon la pente.
-- Par-dessus les clips, en code, après `mixer.update()` : oreilles et queue du fennec qui bougent, tête du touareg qui se tourne vers le joueur. Toujours partir de la rotation posée par le mixer, sinon les rotations s'accumulent.
-- Touareg : wave quand le joueur approche, puis idle ; talk pendant le dialogue, nod quand le joueur répond.
-- Libérer géométries, matériaux et mixers au démontage du composant.
+Les personnages sont dans `src/characters/` : `fennec.ts`, `touareg.ts`, `dialogue.ts` et `common.ts` (outils partagés).
 
-Point à décider avec le groupe : la caméra est en première personne, donc le fennec n'est jamais visible à l'écran.
+- Un AnimationMixer par personnage, avec des fondus d'environ 0,25 s entre les animations.
+- Fennec : idle, walk, trot, run ou jump selon la vitesse et la touche de saut ; posé sur le terrain avec `heightAt` et incliné selon la pente. Oreilles et queue animées en code par-dessus les clips.
+- Touareg : wave quand le joueur approche (moins de 4,5 m), puis idle ; talk pendant le dialogue, nod quand le joueur répond. Sa tête se tourne vers le fennec. Chaque changement de clip est affiché dans la console (`[Touareg] clip : …`).
+- Les rotations ajoutées en code partent toujours de la pose du mixer (classe `MixerPose`) : le mixer ne réécrit un os que si l'animation change sa valeur, donc sans ça les rotations s'accumulent d'une image à l'autre.
+- Géométries, matériaux et mixers sont libérés au démontage du composant.
+
+## Caméra et commandes
+
+- **Vue par défaut : par les yeux du fennec.** On aperçoit le bout de la truffe en bas de l'écran, et les pattes avant en regardant vers le bas. La souris tourne la tête du fennec ; au-delà de la limite du cou, le corps suit. Les globes oculaires (`Fennec_Eyes`) sont cachés dans cette vue.
+- **Touche C : vue de derrière**, pour voir le fennec en entier. La tête regarde devant elle, ou vers le Touareg quand il est proche.
+- **Touche E** près du Touareg : dialogue, réponses avec 1 ou 2. Les répliques sont à écrire dans `src/characters/dialogue.ts` (pour l'instant « [réplique à écrire] »).
+
+## Placement dans le désert
+
+Le joueur part face au soleil. Le Touareg est à 5,7 m, à 90° de la direction du soleil (sur la gauche) : il est éclairé de profil, juste hors de l'écran au départ, et visible en tournant un peu la tête. Sa position est calculée à partir de la direction du soleil dans `src/scenes/desert.ts`.
