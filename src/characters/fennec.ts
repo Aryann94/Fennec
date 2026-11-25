@@ -19,8 +19,8 @@ const GAIT_MARGIN = 0.05;
  * Position de la caméra « yeux du fennec », dans le modèle au repos (mesuré sur fennec.glb).
  * Les yeux sont à y = 0,278, z = 0,177, mais le crâne bas-poly passe 1 cm au-dessus :
  * une caméra placée entre les yeux serait dans la tête et ne verrait pas le museau.
- * On la met donc juste au-dessus du front, au niveau des yeux. Marge mesurée : 1,3 cm au plus juste
- * en course ; au saut, elle peut passer 2 mm sous le front pendant quelques images à l'atterrissage.
+ * On la met donc juste au-dessus du front (2 cm), au niveau des yeux. L'avancer vers le museau
+ * ferait sortir la truffe de l'écran : le museau descend en pente raide (environ 42°).
  */
 const EYE_REST = new THREE.Vector3(0, 0.315, 0.175);
 /** Direction du museau (de l'os head vers la truffe), dans le modèle au repos. */
@@ -30,11 +30,18 @@ const NECK_SHARE = 0.35;
 const NECK_SHARE_DOWN = 0.1;
 /** Le corps suit la pente à 85 % (100 % donnerait un fennec trop penché). */
 const TILT_AMOUNT = 0.85;
-/** Lissage (en secondes) du balancement de la tête vu par la caméra : position, puis inclinaison. */
-const EYE_SMOOTH = 0.1;
+/**
+ * Lissage (en secondes) de la caméra par rapport à la tête : position, puis inclinaison.
+ * La position est presque solidaire de la tête : la truffe n'est qu'à 6 cm de la caméra,
+ * un retard de 1 cm la ferait sauter d'une dizaine de degrés à l'écran. Ce qui ferait
+ * trembler la vue, ce sont les rotations, et en vue par les yeux la tête est bloquée.
+ */
+const EYE_SMOOTH = 0.03;
 const PITCH_SMOOTH = 0.14;
 /** Vitesse de rotation du corps (rad/s) au-delà de laquelle la queue ne réagit pas plus. */
 const TAIL_TURN_MAX = 4;
+/** Durée (s) du fondu quand la tête passe de libre (vue de derrière) à bloquée (vue par les yeux). */
+const HEAD_LOCK_FADE = 0.15;
 /** Matériau des globes oculaires, cachés en vue par les yeux (sinon on les voit en tournant ou en courant). */
 const EYES_MATERIAL = "Fennec_Eyes";
 
@@ -53,6 +60,11 @@ export type FennecInput = {
   lookPitch: number;
   /** Vitesse de rotation du corps, en rad/s (pour la queue). */
   turnRate: number;
+  /**
+   * Vue par les yeux : orientation de la tête imposée dans le monde (radians ;
+   * `yaw` comme `root.rotation.y`, `pitch` + = vers le haut). Absent en vue de derrière.
+   */
+  lockHead?: { yaw: number; pitch: number };
 };
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -89,6 +101,10 @@ export class Fennec {
   private readonly neckPivot = new THREE.Vector3();
   private readonly headPivot = new THREE.Vector3();
   private readonly headRestInv = new THREE.Quaternion();
+  private readonly headRest = new THREE.Quaternion();
+  /** Part du blocage de la tête (1 en vue par les yeux, 0 en vue de derrière), en fondu. */
+  private lockWeight = 0;
+  private lastLock = { yaw: 0, pitch: 0 };
   private readonly eyeInHead = new THREE.Vector3();
 
   // Rotations de la tête appliquées à cette image (repère du corps).
@@ -138,7 +154,8 @@ export class Fennec {
     this.model.updateMatrixWorld(true);
     this.neck.getWorldPosition(this.neckPivot);
     this.head.getWorldPosition(this.headPivot);
-    this.head.getWorldQuaternion(this.headRestInv).invert();
+    this.head.getWorldQuaternion(this.headRest);
+    this.headRestInv.copy(this.headRest).invert();
     this.eyeInHead.copy(EYE_REST);
     this.head.worldToLocal(this.eyeInHead);
     this.snoutInHead.copy(SNOUT_REST).applyQuaternion(this.headRestInv);
@@ -208,6 +225,19 @@ export class Fennec {
     rotateBone(this.neck, this.neckLook, _body);
     rotateBone(this.head, _q, _body);
 
+    // Vue par les yeux : la tête est fixée exactement dans la direction de la caméra
+    // (sans le balancement de l'animation ni le roulis de la pente), sinon le museau
+    // balaie l'écran. Fondu entre les deux modes quand on change de vue.
+    if (input.lockHead) this.lastLock = input.lockHead;
+    const lockTarget = input.lockHead ? 1 : 0;
+    this.lockWeight += (lockTarget - this.lockWeight) * (1 - Math.exp(-dt / HEAD_LOCK_FADE));
+    if (Math.abs(this.lockWeight - lockTarget) < 0.001) this.lockWeight = lockTarget;
+    if (this.lockWeight > 0) {
+      _q2.setFromEuler(_e.set(-this.lastLock.pitch, this.lastLock.yaw, 0, "YXZ")).multiply(this.headRest);
+      this.head.parent!.getWorldQuaternion(_q).invert().multiply(_q2); // orientation voulue, en local
+      this.head.quaternion.slerp(_q, this.lockWeight);
+    }
+
     // Oreilles : rabattues quand il court, petits frémissements de temps en temps.
     const run = Math.min(input.speed / 2.5, 1);
     this.head.getWorldQuaternion(_headFrame).multiply(this.headRestInv);
@@ -251,10 +281,12 @@ export class Fennec {
 
     // Inclinaison réelle du museau (animation comprise) moins celle demandée, lissée :
     // la caméra suit les mouvements lents de la tête mais pas les secousses de la course.
+    // Quand la tête est bloquée (vue par les yeux), il n'y a rien à suivre : on ne compte
+    // que la part libre, sinon les changements de pente en virage décaleraient la caméra.
     this.head.getWorldQuaternion(_q).premultiply(_q2.copy(_body).invert());
     _v.copy(this.snoutInHead).applyQuaternion(_q);
     _n.copy(SNOUT_REST).applyQuaternion(this.headLook);
-    const pitchDelta = pitchOf(_v) - pitchOf(_n);
+    const pitchDelta = (pitchOf(_v) - pitchOf(_n)) * (1 - this.lockWeight);
     this.pitchWobble += (pitchDelta - this.pitchWobble) * (1 - Math.exp(-dt / PITCH_SMOOTH));
   }
 

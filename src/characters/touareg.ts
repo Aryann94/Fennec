@@ -4,12 +4,21 @@ import type { Collider } from "../scenes/types";
 import { disposeModel, fadeTo, loadModel, makeActions, MixerPose, prepareModel, rotateBone } from "./common";
 import { TOUAREG_DIALOGUE } from "./dialogue";
 
-/** Distances en mètres, mesurées entre le fennec et le Touareg. */
-const GREET_DIST = 6; // il salue quand le joueur arrive à cette distance
-const GREET_RESET = 10; // il saluera de nouveau si le joueur s'éloigne au-delà
+/**
+ * Distances en mètres, mesurées entre le fennec et le Touareg.
+ * GREET_DIST doit rester plus petit que la distance au point de départ (5,7 m dans le désert),
+ * sinon il salue dès le chargement, hors de l'écran, et on ne voit jamais le salut.
+ */
+const GREET_DIST = 4.5; // il salue quand le joueur arrive à cette distance
+const GREET_RESET = 8; // il saluera de nouveau si le joueur s'éloigne au-delà
 const TALK_DIST = 2.5; // on peut lui parler (touche E) en dessous
 const LEAVE_DIST = 4; // le dialogue se ferme si le joueur s'éloigne au-delà
 const LOOK_DIST = 12; // il suit le joueur des yeux en dessous
+const FENNEC_LOOK_DIST = 5; // le fennec (vue de derrière) le regarde en dessous
+
+/** Clips attendus dans touareg.glb (voir MODELES.md). */
+const CLIPS = ["idle", "talk", "nod", "wave"] as const;
+type Clip = (typeof CLIPS)[number];
 
 /** Hauteur de la tête du fennec au-dessus de ses pattes. */
 const PLAYER_HEAD = 0.25;
@@ -142,6 +151,14 @@ export class Touareg {
     else console.warn("touareg.glb : os « neck » ou « head » introuvable, la tête ne suivra pas le joueur");
 
     this.actions = makeActions(mixer, gltf.animations);
+    const found = gltf.animations.map((c) => c.name);
+    const missing = CLIPS.filter((name) => !this.actions[name]);
+    if (missing.length > 0) {
+      console.error(`[Touareg] clip(s) manquant(s) : ${missing.join(", ")} — clips du fichier : ${found.join(", ")}`);
+      disposeModel(model, mixer);
+      return;
+    }
+    console.info(`[Touareg] clips chargés : ${found.join(", ")}`);
     this.actions.wave.setLoop(THREE.LoopRepeat, WAVE_REPEATS);
     this.actions.wave.clampWhenFinished = true;
     this.actions.nod.setLoop(THREE.LoopOnce, 1);
@@ -158,11 +175,23 @@ export class Touareg {
     this.play("idle", 0);
   }
 
-  private play(name: string, fade = 0.25) {
+  private play(name: Clip, fade = 0.25) {
     const next = this.actions[name];
+    console.info(`[Touareg] clip : ${name}`);
     if (next === this.current) next.reset().play();
     else fadeTo(this.current, next, fade);
     this.current = next;
+  }
+
+  /**
+   * Position de sa tête, si le fennec est assez près pour le regarder (vue de derrière).
+   * Renvoie null sinon, ou tant que le modèle n'est pas chargé.
+   */
+  lookTargetFor(player: THREE.Vector3, target: THREE.Vector3): THREE.Vector3 | null {
+    if (!this.headBone) return null;
+    const dist = Math.hypot(player.x - this.root.position.x, player.z - this.root.position.z);
+    if (dist > FENNEC_LOOK_DIST) return null;
+    return this.headBone.getWorldPosition(target);
   }
 
   /** Tourne la tête (et un peu le cou) vers le fennec, dans les limites d'un vrai cou. */

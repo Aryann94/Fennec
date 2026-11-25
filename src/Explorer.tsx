@@ -14,7 +14,7 @@ const GRAVITY = 9.8;
 const AIR_TIME = (2 * JUMP_SPEED) / GRAVITY;
 
 /** Vue par les yeux du fennec. */
-const FP_FOV = 80;
+const FP_FOV = 72;
 const FP_NEAR = 0.01; // très proche, pour que le museau ne soit pas coupé
 /** Limites du regard commandé à la souris (radians). */
 const HEAD_YAW_MAX = 0.9; // au-delà, le corps tourne avec la tête
@@ -22,10 +22,12 @@ const FP_PITCH_MIN = -1.75; // un peu au-delà de la verticale (menton rentré) 
 const FP_PITCH_MAX = 0.45;
 /**
  * La tête est levée de cet angle par rapport au regard de la caméra : le museau
- * du modèle descend en pente raide, c'est ce qui le fait apparaître en bas de l'écran.
+ * du modèle descend en pente raide, c'est ce qui fait apparaître le bout de la truffe
+ * en bas de l'écran. Avec 72° de champ, la truffe occupe 6 à 14 % de la hauteur
+ * (mesuré à l'arrêt, en course, en saut et en tournant vite) ; moins, elle disparaît.
  * Quand on regarde vers le bas, l'écart diminue (la tête ne peut pas plonger plus).
  */
-const FP_HEAD_RAISE = 0.4;
+const FP_HEAD_RAISE = 0.35;
 const headRaise = (pitch: number) =>
   FP_HEAD_RAISE * THREE.MathUtils.clamp((pitch - FP_PITCH_MIN) / (-0.5 - FP_PITCH_MIN), 0.25, 1);
 
@@ -36,6 +38,12 @@ const TP_DISTANCE = 1.3;
 const TP_TARGET_HEIGHT = 0.22;
 const TP_PITCH_MIN = -0.15;
 const TP_PITCH_MAX = 1.2;
+/** Regard de la tête en vue de derrière (vers un point d'intérêt proche). */
+const TP_HEAD_HEIGHT = 0.25; // hauteur de la tête au-dessus des pattes
+const TP_LOOK_MAX_ANGLE = 2; // point d'intérêt plus loin derrière lui : il regarde devant
+const TP_LOOK_PITCH_MIN = -0.5;
+const TP_LOOK_PITCH_MAX = 0.8;
+const TP_LOOK_SMOOTH = 0.35; // secondes
 
 type ExplorerProps = {
   world: WorldFactory;
@@ -163,6 +171,8 @@ export default function Explorer({ world, title, hint, onExit, className, style 
     const target = new THREE.Vector3();
     let moveSpeed = 0;
     let bodyYaw = wrapAngle(yaw + Math.PI); // le modèle regarde vers +Z, la caméra vers -Z
+    /** Rotation de la tête par rapport au corps (radians). */
+    const look = { yaw: 0, pitch: 0 };
     let jumpY = 0;
     let jumpV = 0;
     const clock = new THREE.Clock();
@@ -240,9 +250,39 @@ export default function Explorer({ world, title, hint, onExit, className, style 
         if (Math.abs(off) > HEAD_YAW_MAX) bodyYaw = wrapAngle(viewFacing - Math.sign(off) * HEAD_YAW_MAX);
       }
       const turnRate = wrapAngle(bodyYaw - prevBodyYaw) / Math.max(dt, 1e-4);
-      const lookYaw = THREE.MathUtils.clamp(wrapAngle(viewFacing - bodyYaw), -HEAD_YAW_MAX, HEAD_YAW_MAX);
 
       feet.set(player.x, heightAt(player.x, player.z) + jumpY, player.z);
+
+      // Regard de la tête.
+      if (view === "fp") {
+        // Vue par les yeux : la tête suit exactement la souris (la caméra en dépend).
+        look.yaw = THREE.MathUtils.clamp(wrapAngle(viewFacing - bodyYaw), -HEAD_YAW_MAX, HEAD_YAW_MAX);
+        look.pitch = fpPitch + headRaise(fpPitch);
+      } else {
+        // Vue de derrière : la tête ne suit pas la caméra (sinon, en passant devant lui,
+        // elle sautait d'une limite du cou à l'autre). Elle regarde devant elle, ou un
+        // point d'intérêt proche comme le Touareg, avec une transition douce.
+        let wantYaw = 0;
+        let wantPitch = 0;
+        const t = built.lookTarget?.(feet);
+        if (t) {
+          const dx = t.x - feet.x;
+          const dz = t.z - feet.z;
+          const relYaw = wrapAngle(Math.atan2(dx, dz) - bodyYaw);
+          if (Math.abs(relYaw) < TP_LOOK_MAX_ANGLE) {
+            const dy = t.y - (feet.y + TP_HEAD_HEIGHT);
+            wantYaw = THREE.MathUtils.clamp(relYaw, -HEAD_YAW_MAX, HEAD_YAW_MAX);
+            wantPitch = THREE.MathUtils.clamp(
+              Math.atan2(dy, Math.hypot(dx, dz)) - (fennec?.bodyPitch() ?? 0),
+              TP_LOOK_PITCH_MIN,
+              TP_LOOK_PITCH_MAX
+            );
+          }
+        }
+        const s = 1 - Math.exp(-dt / TP_LOOK_SMOOTH);
+        look.yaw += (wantYaw - look.yaw) * s;
+        look.pitch += (wantPitch - look.pitch) * s;
+      }
 
       if (fennec) {
         fennec.place(feet, bodyYaw, groundNormal(player.x, player.z), dt);
@@ -251,9 +291,12 @@ export default function Explorer({ world, title, hint, onExit, className, style 
           speed: moveSpeed,
           backward,
           airborne: jumpY > 0 || jumpV > 0,
-          lookYaw,
-          lookPitch: view === "fp" ? fpPitch + headRaise(fpPitch) : 0,
+          lookYaw: look.yaw,
+          lookPitch: look.pitch,
           turnRate,
+          // Vue par les yeux : tête bloquée dans la direction du regard (le museau ne bouge pas à l'écran).
+          lockHead:
+            view === "fp" ? { yaw: viewFacing, pitch: fennec.bodyPitch() + fpPitch + headRaise(fpPitch) } : undefined,
         });
       }
 

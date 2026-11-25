@@ -22,6 +22,11 @@ export type World = {
   clamp?: (position: THREE.Vector3) => void;
   /** Obstacles infranchissables (rochers, tribunes, poteaux…). */
   colliders?: Collider[];
+  /**
+   * Point que le fennec regarde en vue de derrière (par exemple la tête d'un personnage proche),
+   * ou null pour regarder devant lui. `player` = position des pattes du fennec.
+   */
+  lookTarget?: (player: THREE.Vector3) => THREE.Vector3 | null;
   /** Appelé à chaque image, avant le rendu. `player` = position des pattes du fennec. */
   onFrame?: (dt: number, camera: THREE.PerspectiveCamera, player: THREE.Vector3) => void;
   dispose?: () => void;

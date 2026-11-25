@@ -208,12 +208,14 @@ export function buildDesert({ scene, mount }: SceneContext): World {
     faces: { x: 0, z: 0 },
   });
   colliders.push(touareg.collider);
+  const touaregHead = new THREE.Vector3();
 
   return {
     heightAt: desertHeightAt,
     eye: EYE,
     spawn: { x: 0, z: 0, yaw: 0, pitch: 0.04 },
     colliders,
+    lookTarget: (player) => touareg.lookTargetFor(player, touaregHead),
     clamp: (p) => {
       const r = Math.hypot(p.x, p.z);
       if (r > LIMIT) {
